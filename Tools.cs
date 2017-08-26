@@ -18,7 +18,7 @@ public class Tools : MonoBehaviour {
         originPos = transform.position; //Tracks the player's current position
         currentPos = transform.position; //Tracks the player's position while he is grappled
         origin=transform.rotation; //Tracks the player's original rotation
-        camera_position = Camera.main.camera.transform.rotation; //Tracks the camera's original position
+        camera_position = Camera.main.GetComponent<Camera>().transform.rotation; //Tracks the camera's original position
 	}
 	void Update () 
     {

@@ -8,15 +8,14 @@ class EMChecker : MonoBehaviour
 	float maxRadius = 20.0f; //should be defined by gravity but Unity won't let me.
 	float miss;
 	float hit;
-
-	int layer = (1 << 0);
-	int precision = 12;
-
-	bool everyOtherFrame = true;
-
+	
+	int layer = (1 << 9);
+	int precision = 14;//2^-4 for maxRadius and 2^-10 for good measure; //23 for mantissa and 4 for log(16) ~ log(maxRadius)
+	
+	public bool everyOtherFrame = true;
+	
 	CharacterComplex comp;
-	EpicCam cam;
-
+	
 	void Start ()
 	{
 		/*for(int i = 0; i < comp.gravity.keys.Length; i++)
@@ -27,18 +26,12 @@ class EMChecker : MonoBehaviour
 		GameObject obj = GameObject.Find("/Player");
 		trans = obj.GetComponent<Transform>();
 		comp  = obj.GetComponent<CharacterComplex>();
-
-		obj = GameObject.Find ("/MainCamera");
-		cam = obj.GetComponent<EpicCam>();
-
-		obj = this.gameObject;
-		sphere = obj.GetComponent<SphereCollider>();
+		
+		sphere = this.gameObject.GetComponent<SphereCollider>();
 	}
-
+	
 	void FixedUpdate ()
-	{
-		everyOtherFrame = !everyOtherFrame;
-
+	{	
 		if(everyOtherFrame)
 		{
 			sphere.enabled = true;
@@ -46,14 +39,20 @@ class EMChecker : MonoBehaviour
 			miss = 0f;
 			hit = maxRadius;
 
-			if(Physics.CheckSphere(trans.position,hit, layer)) //bisection method hitDist / (2^(precision+1)) accuracy
+			//use lower precision then a raycast!!!!!!!!!!!!!
+			//also, you don't have to start from scratch in a static environment
+			//you can use old collision distance info and the direction/distance moved last frame
+			//to calc new approx for collision estimations
+
+			Vector3 pos = trans.position;
+			if(Physics.CheckSphere(pos,hit, layer)) //bisection method with maxRadius / (2^(precision+1)) accuracy
 			{
 				for(int i = 0; i < precision; ++i)
 				{
 					float check = (miss + hit) / 2;
-
-					if(Physics.CheckSphere(trans.position, check, layer)) hit = check;
-					else 												  miss = check;
+					
+					if(Physics.CheckSphere(pos, check, layer)) hit = check;
+					else 									   miss = check;
 				}
 			}
 			else
@@ -61,52 +60,63 @@ class EMChecker : MonoBehaviour
 				comp.grounded = false;
 				comp.gravitate = false;
 			}
-			sphere.center = trans.position;
-			sphere.radius = hit + 0.001f;
-
+			
 			comp.dist = hit;
-		}
-		else sphere.enabled = false;
-	}
 
-	void OnCollisionEnter(Collision c)
-	{
-		if(everyOtherFrame)
+			sphere.radius = hit + 0.01f;
+			sphere.center = trans.position;
+		}
+		else
 		{
-			int minIndex = 0;
-			float minDist = Vector3.Distance(trans.position, c.contacts[0].point);
-
-			for(int i = 1; i < c.contacts.Length; i++)
-			{
-				float dist = Vector3.Distance(c.contacts[i].point,sphere.center);
-				
-				if(dist < minDist)
-				{
-					minDist = dist;
-					minIndex = i;
-				}
-			}
-
-			if(comp.dist < maxRadius)
-			{
-				Vector3 normal = (trans.position - c.contacts[minIndex].point).normalized;
-				Vector3 forward = comp.PlanarMovement(comp.normal, normal, trans.forward);
-				
-				if(forward != Vector3.zero)
-				{
-					trans.rotation = Quaternion.LookRotation(forward, normal); //rotate the player base
-					cam.Rotate(Quaternion.LookRotation(forward, normal)); //rotate the target position for the camera
-				}
-				comp.normal = normal;
-			}
-			
-			if(comp.dist < 0.7f && Vector3.Dot(comp.velocity,comp.normal) < 9f) comp.grounded = true;
-			else 																comp.grounded = false;
-			
-			if(comp.grounded) trans.position -= comp.normal*(sphere.radius - 0.51f);
-			
-			if(comp.dist < 0.55f) comp.gravitate = false;
-			else 				  comp.gravitate = true;
+			sphere.enabled = false;
 		}
+		everyOtherFrame = !everyOtherFrame;
+	}
+	
+	void OnCollisionEnter(Collision c)
+	{	
+		int minIndex = 0;
+		float minDist = Vector3.Distance(trans.position, c.contacts[0].point);
+		
+		for(int i = 1; i < c.contacts.Length; i++)
+		{
+			float dist = Vector3.Distance(c.contacts[i].point, trans.position);
+			
+			if(dist < minDist)
+			{
+				minDist = dist;
+				minIndex = i;
+			}
+		}
+		
+		if(comp.dist < maxRadius)
+		{
+			Vector3 normal = (trans.position - c.contacts[minIndex].point).normalized;
+			Vector3 forward = Vector3.zero;
+			if(normal != comp.normal) forward = comp.PlanarMovement(comp.normal, normal, trans.forward);
+			
+			if(forward != Vector3.zero) trans.rotation = Quaternion.LookRotation(forward, normal); //rotate the player base
+
+			comp.groundCharge = c.contacts[minIndex].otherCollider.gameObject.GetComponent<Charge>().charge;
+			comp.normal = normal;
+		}
+
+		float dot = Vector3.Dot(comp.velocity,comp.normal);
+
+		if(comp.dist < 0.6f && dot < 9f)
+		{
+			if(Mathf.Sign(comp.playerCharge*comp.groundCharge) < 0f) comp.grounded = true; //opposites attract
+			else
+			{
+				comp.Jump();
+				//likes repel
+			}
+		}
+		else 							 comp.grounded = false;
+
+		if(comp.dist < 0.9f && -0.1f < dot && dot < 9f) trans.position -= comp.normal*(comp.dist - 0.51f);
+		
+		if(comp.dist < 0.55f) comp.gravitate = false;
+		else 				  comp.gravitate = true;
 	}
 }

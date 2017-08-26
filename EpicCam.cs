@@ -3,75 +3,65 @@ using System.Collections;
 
 public class EpicCam : MonoBehaviour
 {
-	Transform trans;
-	Transform target;
 	Transform orbit;
-	Vector3 oldOrbit;
-	Vector3 v3 = new Vector3(0f,0.258819f,-0.965925f);
+	Transform pivot1;
+	Transform pivot2;
+	Transform trans;
+	
+	float pitch = 0f;
+	float oldPitch = 0f;
 
-	int layer = (1 << 0);
+	float lerpDist = 3f;
 
-	float critical_angle = 30f;
-
-	bool b = true;
+	int layer = (1 << 9) | (1 << 10);
 
 	void Start ()
 	{
-		GameObject obj = this.gameObject;
-		trans = obj.transform;
-		
-		obj = GameObject.Find("/Player");
+		GameObject obj = GameObject.Find("/Player");
 		orbit = obj.transform;
-		
-		obj = GameObject.Find("/Player/CameraTarget");
-		target = obj.transform;
-		
-		oldOrbit = orbit.position;
+
+		obj = GameObject.Find("/CameraPivot");
+		pivot1 = obj.transform;
+
+		obj = GameObject.Find("/CameraPivot/ExtraPivot");
+		pivot2 = obj.transform;
+
+		obj = GameObject.Find("/CameraPivot/ExtraPivot/MainCamera");
+		trans = obj.transform;
 	}
 
 	void LateUpdate ()
-	{
-		Vector3 delta = (orbit.position - oldOrbit);
-
-
-		if(delta != Vector3.zero)
-		{
-			trans.position += delta;
-			b = true;
-		}
+	{	
+		pivot1.position = orbit.position; //sync up object positions every frame
 		
-		if(trans.rotation != target.rotation || b)
+		if(pivot1.rotation != orbit.rotation)
 		{
-			float angle = Quaternion.Angle(trans.rotation,target.rotation);
+			float angle = Quaternion.Angle(pivot1.rotation,orbit.rotation);
 
-			if(angle < 20f)
-			{
-				trans.rotation = Quaternion.Slerp(trans.rotation,target.rotation,Time.deltaTime*120f/angle);
-			}
-			else
-			{
-				trans.rotation = Quaternion.Slerp(trans.rotation,target.rotation,Time.deltaTime*6f);
-			}
-
-			Vector3 direction = trans.rotation*v3; 
-
-			float distance = 3f;
-
-			RaycastHit hit;
-
-			if(Physics.Raycast(orbit.position, direction, out hit, 3f, layer)) distance = hit.distance - 0.1f;
-			else                                                               distance = 3f;
-			
-			trans.position = orbit.position + direction*distance;
+			//slowly track the "orientation" of the player with pivot1
+			if(angle < 20f) pivot1.rotation = Quaternion.Slerp(pivot1.rotation,orbit.rotation,Time.deltaTime*120f/angle);
+			else 			pivot1.rotation = Quaternion.Slerp(pivot1.rotation,orbit.rotation,Time.deltaTime*6f); //notice 120/20 = 6
 		}
-		
-		oldOrbit = orbit.position;
-		b = false;
-	}
-	
-	public void Rotate(Quaternion q)
-	{
-		target.rotation = q*Quaternion.Euler(30f,0f,0f);
-		target.position = orbit.position + trans.rotation*v3*5f;
+
+		pitch -= Input.GetAxis("Mouse Y")*50f*Time.deltaTime; //rotate camera up/down with mouse movement
+		pitch = Mathf.Clamp(pitch,-60f,60f); //make sure the camera can't rotate more than 80 degrees up or down
+
+		if(pitch != oldPitch)
+		{
+			//pivot2 tracks the head movements (up/down) of the player
+			pivot2.localRotation = Quaternion.Euler(pitch,0f,0f); //remember everything is relative with local!
+			oldPitch = pitch;
+		}
+
+		//trans places the camera 3 or less meters behind the final rotation
+		//check for anything that would collide with the camera, place the camera in front of it if necessary
+		RaycastHit hit;
+		float distance = 3f;
+		if(Physics.Raycast(orbit.position, trans.rotation*Vector3.back, out hit, 3f, layer)) distance = hit.distance - 0.1f;
+
+		lerpDist = Mathf.Lerp (lerpDist,distance,5*Time.deltaTime);// move away slowly
+		if(lerpDist > distance) lerpDist = distance; // move in instantaneously
+
+		trans.localPosition = trans.localRotation*Vector3.back*lerpDist; //remember everything is relative with local
 	}
 }
